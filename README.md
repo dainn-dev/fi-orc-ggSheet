@@ -66,7 +66,7 @@ Example of the "Company" worksheet:
 0. Create folder images and reports
 1. Run the script:
 ```bash
-python main.py
+py main.py
 ```
 
 2. The script will:
