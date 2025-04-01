@@ -148,7 +148,7 @@ def get_pdf_file(code: str) -> Optional[str]:
         print("Error fetching the URL:", e)
         return None
 
-def save_image(img: Image.Image, page_num: int) -> str:
+def save_image(code: str, img: Image.Image, page_num: int) -> str:
     """Save image to local storage.
     
     Args:
@@ -159,7 +159,7 @@ def save_image(img: Image.Image, page_num: int) -> str:
     Returns:
         Path to saved image
     """
-    image_path = f"images/page_{page_num}.png"
+    image_path = f"images/{code}/page_{page_num}.png"
     os.makedirs(os.path.dirname(image_path), exist_ok=True)
     img.save(image_path, "PNG")
     return image_path
@@ -213,15 +213,42 @@ def get_page_range() -> Tuple[int, Optional[int]]:
         except ValueError:
             print("Please enter valid numbers")
 
-def process_images_only(pdf_path: str, start_page: int = 1, end_page: Optional[int] = None) -> None:
+def clear_images(code: str) -> None:
+    """Clear all images for a specific company code.
+    
+    Args:
+        code: Company code
+    """
+    try:
+        company_dir = f"images/{code}"
+        if os.path.exists(company_dir):
+            # Remove all files in the directory
+            for file in os.listdir(company_dir):
+                file_path = os.path.join(company_dir, file)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                except Exception as e:
+                    print(f"Error deleting {file_path}: {str(e)}")
+            print(f"Cleared all images for company {code}")
+        else:
+            print(f"No existing images found for company {code}")
+    except Exception as e:
+        print(f"Error clearing images: {str(e)}")
+
+def process_images_only(code: str, pdf_path: str, start_page: int = 1, end_page: Optional[int] = None) -> None:
     """Process PDF and save specified pages as images without text extraction.
     
     Args:
+        code: Company code
         pdf_path: Path to the PDF file
         start_page: First page to process (1-based)
         end_page: Last page to process (1-based), None for all pages
     """
     try:
+        # Clear existing images for this company
+        clear_images(code)
+        
         # Convert PDF to images
         images = convert_from_path(pdf_path, poppler_path=POPPLER_PATH)
         total_pages = len(images)
@@ -245,7 +272,7 @@ def process_images_only(pdf_path: str, start_page: int = 1, end_page: Optional[i
         # Save specified pages as images
         for i in range(start_page - 1, end_page):
             img = images[i]
-            image_path = save_image(img, i + 1)
+            image_path = save_image(code, img, i + 1)
             print(f"Saved page {i + 1} to {image_path}")
             
         print(f"\nAll pages from {start_page} to {end_page} have been saved as images.")
@@ -368,7 +395,7 @@ def process_company_data(choice: int = 1) -> None:
                 # Get page range from user
                 start_page, end_page = get_page_range()
                 # Process images only
-                process_images_only(pdf_file_path, start_page, end_page)
+                process_images_only(code,pdf_file_path, start_page, end_page)
             else:
                 # Get all configurations
                 configs = [config for config in row[2:] if config]  # Skip empty configs
