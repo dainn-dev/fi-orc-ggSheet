@@ -63,7 +63,7 @@ Example of the "Company" worksheet:
 ```
 
 ## Usage
-
+0. Create folder images and reports
 1. Run the script:
 ```bash
 python main.py
