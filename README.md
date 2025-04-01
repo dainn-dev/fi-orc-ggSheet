@@ -41,7 +41,7 @@ pip install requests numpy opencv-python gspread beautifulsoup4 Pillow pdf2image
    - Column 3+: Configuration strings in format "page,target_cell,x1,y1,x2,y2"
      - page: Page number in PDF (1-based)
      - target_cell: Cell reference (e.g., "B4")
-     - x1,y1,x2,y2: Region coordinates
+     - x1,y1,x2,y2: Region coordinates(upload image to https://www.image-map.net/ and get coords)
 
 ## Configuration
 
