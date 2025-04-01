@@ -7,7 +7,6 @@ import requests
 import numpy as np
 import gspread
 from bs4 import BeautifulSoup
-from PIL import Image
 from pdf2image import convert_from_path
 import easyocr
 

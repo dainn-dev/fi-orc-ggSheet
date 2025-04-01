@@ -57,9 +57,9 @@ WEB = "https://cafef.vn/du-lieu/Ajax/CongTy/BaoCaoTaiChinh.aspx?sym="
 ### 2. Google Sheet Structure
 Example of the "Company" worksheet:
 ```
-| Header | Company Code | Config 1 | Config 2 |
-|--------|-------------|----------|----------|
-| Header | VNM         | 1,B4,100,100,200,200 | 2,B5,300,300,400,400 |
+| Header | Company Code | Config 1             | Config 2             |
+|--------|------------- |----------------------|----------------------|
+| Header | VNM          | 1,B4,100,100,200,200 | 2,B5,300,300,400,400 |
 ```
 
 ## Usage
