@@ -9,6 +9,7 @@ import gspread
 from bs4 import BeautifulSoup
 from pdf2image import convert_from_path
 import easyocr
+from PIL import Image
 
 # Configuration
 POPPLER_PATH = r"C:\Program Files\poppler-24.08.0\Library\bin"
@@ -126,7 +127,6 @@ def get_pdf_file(code: str) -> Optional[str]:
                 
                 for row in rows:
                     if "báo cáo tài chính hợp nhất" in row.text.lower():
-                        print("Matching <tr> Found:", row)
                         link = row.find('a', href=True)
                         
                         if link and link['href'].endswith('.pdf'):
@@ -148,16 +148,116 @@ def get_pdf_file(code: str) -> Optional[str]:
         print("Error fetching the URL:", e)
         return None
 
-def extract_text_from_pdf(pdf_path: str, configs: List[str], keepImage: bool = False) -> List[Dict[str, str]]:
-    """Extract text from PDF for multiple regions at once.
+def save_image(img: Image.Image, page_num: int) -> str:
+    """Save image to local storage.
+    
+    Args:
+        img: PIL Image object
+        page_num: Page number for filename
+        keepImage: Whether to keep the image after processing
+        
+    Returns:
+        Path to saved image
+    """
+    image_path = f"images/page_{page_num}.png"
+    os.makedirs(os.path.dirname(image_path), exist_ok=True)
+    img.save(image_path, "PNG")
+    return image_path
+
+def select_text_in_region(ocr_results: List[Tuple], region: Tuple[int, int, int, int], confidence_threshold: float = 0.5) -> List[Tuple[str, float]]:
+    """Select text that falls within the specified region.
+    
+    Args:
+        ocr_results: List of OCR results (box, text, confidence)
+        region: Tuple of (x1, y1, x2, y2) coordinates
+        confidence_threshold: Minimum confidence score for text selection
+        
+    Returns:
+        List of tuples containing (text, confidence) for selected text
+    """
+    found_texts = []
+    for detection in ocr_results:
+        box = detection[0]  # Bounding box coordinates
+        text = detection[1]  # The actual text content
+        confidence = detection[2]  # Confidence score
+        
+        try:
+            if is_box_in_region(box, region) and confidence > confidence_threshold:
+                found_texts.append((text, confidence))
+        except Exception as e:
+            print(f"Warning: Error checking box {box}: {str(e)}")
+            continue
+    
+    return found_texts
+
+def get_page_range() -> Tuple[int, Optional[int]]:
+    """Get start and end page numbers from user input."""
+    while True:
+        try:
+            start_page = int(input("Enter start page number (1 or greater): "))
+            if start_page < 1:
+                print("Start page must be greater than 0")
+                continue
+                
+            end_page_input = input("Enter end page number (press Enter for all remaining pages): ").strip()
+            if not end_page_input:
+                return start_page, None
+                
+            end_page = int(end_page_input)
+            if end_page < start_page:
+                print("End page must be greater than or equal to start page")
+                continue
+                
+            return start_page, end_page
+            
+        except ValueError:
+            print("Please enter valid numbers")
+
+def process_images_only(pdf_path: str, start_page: int = 1, end_page: Optional[int] = None) -> None:
+    """Process PDF and save specified pages as images without text extraction.
     
     Args:
         pdf_path: Path to the PDF file
-        configs: List of configuration strings in format "page,target_cell,x1,y1,x2,y2"
-        
-    Returns:
-        List of dictionaries containing target_cell and extracted text
+        start_page: First page to process (1-based)
+        end_page: Last page to process (1-based), None for all pages
     """
+    try:
+        # Convert PDF to images
+        images = convert_from_path(pdf_path, poppler_path=POPPLER_PATH)
+        total_pages = len(images)
+        
+        # Validate page numbers
+        if start_page < 1:
+            print("Error: Start page must be greater than 0")
+            return
+            
+        if end_page is None:
+            end_page = total_pages
+        elif end_page > total_pages:
+            print(f"Warning: End page {end_page} exceeds total pages {total_pages}. Using last page.")
+            end_page = total_pages
+        elif end_page < start_page:
+            print("Error: End page must be greater than or equal to start page")
+            return
+            
+        print(f"\nProcessing PDF pages {start_page} to {end_page} of {total_pages}...")
+        
+        # Save specified pages as images
+        for i in range(start_page - 1, end_page):
+            img = images[i]
+            image_path = save_image(img, i + 1)
+            print(f"Saved page {i + 1} to {image_path}")
+            
+        print(f"\nAll pages from {start_page} to {end_page} have been saved as images.")
+        
+    except Exception as e:
+        print(f"Error processing PDF: {str(e)}")
+        print("\nPlease make sure you have:")
+        print("1. Installed Poppler from: https://github.com/oschwartz10612/poppler-windows/releases/")
+        print("2. Set the correct POPPLER_PATH in the code to match your installation")
+
+def process_text_only(pdf_path: str, configs: List[str]) -> List[Dict[str, str]]:
+    """Process PDF and extract text without saving images."""
     try:
         # Initialize EasyOCR with Vietnamese and English support
         reader = easyocr.Reader(['vi', 'en'])
@@ -200,11 +300,6 @@ def extract_text_from_pdf(pdf_path: str, configs: List[str], keepImage: bool = F
             # Get the target page image
             img = images[page_index]
             
-            # Save the image locally
-            image_path = f"images/page_{page_num}.png"
-            os.makedirs(os.path.dirname(image_path), exist_ok=True)
-            img.save(image_path, "PNG")
-            
             # Convert PIL image to numpy array
             img_np = np.array(img)
             
@@ -213,19 +308,8 @@ def extract_text_from_pdf(pdf_path: str, configs: List[str], keepImage: bool = F
             
             # Process each region on this page
             for config in configs:
-                found_texts = []
-                for detection in ocr_results:
-                    box = detection[0]  # Bounding box coordinates
-                    text = detection[1]  # The actual text content
-                    confidence = detection[2]  # Confidence score
-                    
-                    try:
-                        # Check if the text box intersects with the target region
-                        if is_box_in_region(box, config['region']) and confidence > 0.5:
-                            found_texts.append((text, confidence))
-                    except Exception as e:
-                        print(f"Warning: Error checking box {box}: {str(e)}")
-                        continue
+                # Select text in the region
+                found_texts = select_text_in_region(ocr_results, config['region'])
                 
                 if found_texts:
                     # Sort texts by y-coordinate to maintain reading order
@@ -240,10 +324,6 @@ def extract_text_from_pdf(pdf_path: str, configs: List[str], keepImage: bool = F
                         'target_cell': config['target_cell'],
                         'text': "No text found in the specified region"
                     })
-            
-            # Clean up the image file
-            if not keepImage:
-                os.remove(image_path)
         
         return results
         
@@ -255,7 +335,7 @@ def extract_text_from_pdf(pdf_path: str, configs: List[str], keepImage: bool = F
         print("3. Installed EasyOCR using: pip install easyocr")
         return []
 
-def process_company_data(keepImage: bool = False) -> None:
+def process_company_data(choice: int = 1) -> None:
     """Process company data from Google Sheets and extract text from PDFs."""
     # Get the Google Sheet
     sheet = get_sheet_data()
@@ -284,36 +364,42 @@ def process_company_data(keepImage: bool = False) -> None:
             if not download_pdf(pdf_url, pdf_file_path):
                 continue
             
-            # Get all configurations
-            configs = [config for config in row[2:] if config]  # Skip empty configs
-            
-            # Create or get the results worksheet
-            try:
-                results_worksheet = sheet.worksheet(code)
-            except:
-                results_worksheet = sheet.add_worksheet(code, 1000, 10)
-            
-            # Process all regions at once
-            results = extract_text_from_pdf(pdf_file_path, configs, keepImage)
-            
-            # Save results to specific cells
-            for result in results:
+            if choice == 1:
+                # Get page range from user
+                start_page, end_page = get_page_range()
+                # Process images only
+                process_images_only(pdf_file_path, start_page, end_page)
+            else:
+                # Get all configurations
+                configs = [config for config in row[2:] if config]  # Skip empty configs
+                
+                # Create or get the results worksheet
                 try:
-                    target_cell = result['target_cell']
-                    text = result['text']
-                    
-                    # Update cell with text (one cell below)
-                    next_row = int(target_cell[1:])
-                    next_col = ord(target_cell[0].upper()) - ord('A') + 1
-                    results_worksheet.update_cell(
-                        next_row,
-                        next_col,
-                        text
-                    )
-                    
-                    print(f"Updated cells {target_cell} and {chr(ord(target_cell[0]))}{int(target_cell[1:]) + 1} with results")
-                except Exception as e:
-                    print(f"Error updating cells: {str(e)}")
+                    results_worksheet = sheet.worksheet(code)
+                except:
+                    results_worksheet = sheet.add_worksheet(code, 1000, 10)
+                
+                # Process text only
+                results = process_text_only(pdf_file_path, configs)
+                
+                # Save results to specific cells
+                for result in results:
+                    try:
+                        target_cell = result['target_cell']
+                        text = result['text']
+                        
+                        # Update cell with text (one cell below)
+                        next_row = int(target_cell[1:])
+                        next_col = ord(target_cell[0].upper()) - ord('A') + 1
+                        results_worksheet.update_cell(
+                            next_row,
+                            next_col,
+                            text
+                        )
+                        
+                        print(f"Updated cells {target_cell} and {chr(ord(target_cell[0]))}{int(target_cell[1:]) + 1} with results")
+                    except Exception as e:
+                        print(f"Error updating cells: {str(e)}")
             
             # Clean up
             os.remove(pdf_file_path)
@@ -323,5 +409,25 @@ def process_company_data(keepImage: bool = False) -> None:
             print(f"Error processing company {code}: {str(e)}")
             continue
 
+def display_menu() -> None:
+    """Display the main menu and get user choice."""
+    while True:
+        print("\nPDF Processing Menu")
+        print("1. Save PDF pages as images")
+        print("2. Extract text from PDF")
+        print("3. Exit")
+        
+        try:
+            choice = int(input("\nEnter your choice (1-3): "))
+            if choice == 3:
+                print("Goodbye!")
+                break
+            elif choice in [1, 2]:
+                process_company_data(choice)
+            else:
+                print("Invalid choice. Please enter 1, 2, or 3.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+
 if __name__ == "__main__":
-    process_company_data(keepImage=True)
+    display_menu()
