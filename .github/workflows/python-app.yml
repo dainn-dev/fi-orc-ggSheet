@@ -1,0 +1,78 @@
+name: PDF Text Extractor
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: [3.7, 3.8, 3.9, '3.10']
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install Poppler
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Download Poppler
+        $url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v24.08.0-0/Release-24.08.0-0.zip"
+        $output = "poppler.zip"
+        Invoke-WebRequest -Uri $url -OutFile $output
+        
+        # Extract to C:\Program Files
+        Expand-Archive -Path $output -DestinationPath "C:\Program Files" -Force
+        
+        # Add to PATH
+        $env:Path += ";C:\Program Files\poppler-24.08.0\Library\bin"
+        [Environment]::SetEnvironmentVariable("Path", $env:Path, [System.EnvironmentVariableTarget]::Machine)
+    
+    - name: Install Poppler (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y poppler-utils
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests numpy opencv-python gspread beautifulsoup4 Pillow pdf2image easyocr
+    
+    - name: Create required directories
+      run: |
+        mkdir images
+        mkdir reports
+    
+    - name: Check for credentials file
+      run: |
+        if (-not (Test-Path credentials.json)) {
+          Write-Host "Error: credentials.json not found"
+          Write-Host "Please add your Google Cloud credentials file to the repository"
+          exit 1
+        }
+    
+    - name: Run script
+      env:
+        POPPLER_PATH: ${{ matrix.os == 'windows-latest' && 'C:\Program Files\poppler-24.08.0\Library\bin' || '/usr/bin' }}
+      run: |
+        python main.py
+    
+    - name: Upload results
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: results-${{ matrix.os }}-python-${{ matrix.python-version }}
+        path: |
+          images/
+          reports/
+        retention-days: 7 
