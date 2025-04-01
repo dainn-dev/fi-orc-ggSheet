@@ -74,7 +74,6 @@ def get_sheet_data() -> Optional[gspread.Spreadsheet]:
                     print(f"Error: Credentials file is missing required fields: {', '.join(missing_fields)}")
                     print("Please make sure you downloaded the correct credentials file from Google Cloud Console")
                     return None
-                print(f"\nService Account Email: {creds['client_email']}")
                 print("Please share your Google Sheet with this email address")
         except json.JSONDecodeError:
             print("Error: Credentials file is not valid JSON")
@@ -190,16 +189,33 @@ def select_text_in_region(ocr_results: List[Tuple], region: Tuple[int, int, int,
     
     return found_texts
 
-def get_page_range() -> Tuple[int, Optional[int]]:
-    """Get start and end page numbers from user input."""
+def get_company_code() -> Optional[str]:
+    """Get company code from user input with option to cancel."""
     while True:
+        code = input("Enter company code (or 'C' to cancel): ").strip().upper()
+        if code == 'C':
+            return None
+        if code:
+            return code
+        print("Please enter a valid company code")
+
+def get_page_range() -> Tuple[Optional[int], Optional[int]]:
+    """Get start and end page numbers from user input with option to cancel."""
+    while True:
+        start_input = input("Enter start page number (1 or greater, or 'C' to cancel): ").strip().upper()
+        if start_input == 'C':
+            return None, None
+            
         try:
-            start_page = int(input("Enter start page number (1 or greater): "))
+            start_page = int(start_input)
             if start_page < 1:
                 print("Start page must be greater than 0")
                 continue
                 
-            end_page_input = input("Enter end page number (press Enter for all remaining pages): ").strip()
+            end_page_input = input("Enter end page number (press Enter for all remaining pages, or 'C' to cancel): ").strip().upper()
+            if end_page_input == 'C':
+                return None, None
+                
             if not end_page_input:
                 return start_page, None
                 
@@ -373,68 +389,84 @@ def process_company_data(choice: int = 1) -> None:
     company_worksheet = sheet.worksheet('Company')
     company_data = company_worksheet.get_all_values()
     
-    # Process each company
+    # Get company code from user
+    code = get_company_code()
+    if not code:
+        print("Operation cancelled by user")
+        return
+        
+    # Find the company in the worksheet
+    company_row = None
     for row in company_data[1:]:  # Skip header row
-        try:
-            code = row[1]  # Company code is in second column
-            print(f"\nProcessing company code: {code}")
+        if row[1] == code:  # Company code is in second column
+            company_row = row
+            break
             
-            # Get PDF URL
-            pdf_url = get_pdf_file(code)
-            if not pdf_url:
-                print(f"Could not find PDF URL for code {code}")
-                continue
+    if not company_row:
+        print(f"Company code {code} not found in the worksheet")
+        return
+    
+    try:
+        print(f"\nProcessing company code: {code}")
+        
+        # Get PDF URL
+        pdf_url = get_pdf_file(code)
+        if not pdf_url:
+            print(f"Could not find PDF URL for code {code}")
+            return
+        
+        # Download PDF
+        pdf_file_path = f"reports/{pdf_url.split('/')[-1]}"
+        os.makedirs(os.path.dirname(pdf_file_path), exist_ok=True)
+        if not download_pdf(pdf_url, pdf_file_path):
+            return
+        
+        if choice == 1:
+            # Get page range from user
+            start_page, end_page = get_page_range()
+            if start_page is None or end_page is None:
+                print("Operation cancelled by user")
+                return
+            # Process images only
+            process_images_only(code, pdf_file_path, start_page, end_page)
+        else:
+            # Get all configurations
+            configs = [config for config in company_row[2:] if config]  # Skip empty configs
             
-            # Download PDF
-            pdf_file_path = f"reports/{pdf_url.split('/')[-1]}"
-            os.makedirs(os.path.dirname(pdf_file_path), exist_ok=True)
-            if not download_pdf(pdf_url, pdf_file_path):
-                continue
+            # Create or get the results worksheet
+            try:
+                results_worksheet = sheet.worksheet(code)
+            except:
+                results_worksheet = sheet.add_worksheet(code, 1000, 10)
             
-            if choice == 1:
-                # Get page range from user
-                start_page, end_page = get_page_range()
-                # Process images only
-                process_images_only(code,pdf_file_path, start_page, end_page)
-            else:
-                # Get all configurations
-                configs = [config for config in row[2:] if config]  # Skip empty configs
-                
-                # Create or get the results worksheet
+            # Process text only
+            results = process_text_only(pdf_file_path, configs)
+            
+            # Save results to specific cells
+            for result in results:
                 try:
-                    results_worksheet = sheet.worksheet(code)
-                except:
-                    results_worksheet = sheet.add_worksheet(code, 1000, 10)
-                
-                # Process text only
-                results = process_text_only(pdf_file_path, configs)
-                
-                # Save results to specific cells
-                for result in results:
-                    try:
-                        target_cell = result['target_cell']
-                        text = result['text']
-                        
-                        # Update cell with text (one cell below)
-                        next_row = int(target_cell[1:])
-                        next_col = ord(target_cell[0].upper()) - ord('A') + 1
-                        results_worksheet.update_cell(
-                            next_row,
-                            next_col,
-                            text
-                        )
-                        
-                        print(f"Updated cells {target_cell} and {chr(ord(target_cell[0]))}{int(target_cell[1:]) + 1} with results")
-                    except Exception as e:
-                        print(f"Error updating cells: {str(e)}")
-            
-            # Clean up
-            os.remove(pdf_file_path)
-            print(f"Completed processing company {code}")
+                    target_cell = result['target_cell']
+                    text = result['text']
+                    
+                    # Update cell with text (one cell below)
+                    next_row = int(target_cell[1:])
+                    next_col = ord(target_cell[0].upper()) - ord('A') + 1
+                    results_worksheet.update_cell(
+                        next_row,
+                        next_col,
+                        text
+                    )
+                    
+                    print(f"Updated cells {target_cell} and {chr(ord(target_cell[0]))}{int(target_cell[1:]) + 1} with results")
+                except Exception as e:
+                    print(f"Error updating cells: {str(e)}")
+        
+        # Clean up
+        os.remove(pdf_file_path)
+        print(f"Completed processing company {code}")
 
-        except Exception as e:
-            print(f"Error processing company {code}: {str(e)}")
-            continue
+    except Exception as e:
+        print(f"Error processing company {code}: {str(e)}")
 
 def display_menu() -> None:
     """Display the main menu and get user choice."""
