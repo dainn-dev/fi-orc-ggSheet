@@ -13,7 +13,7 @@ from PIL import Image
 
 # Configuration
 POPPLER_PATH = r"C:\Program Files\poppler-24.08.0\Library\bin"
-SHEET_ID = "1O135ZG0rujXpki_zJyJxiVZhjWpDq2ytWc5Ra2hPyUE"
+SHEET_ID = "your_sheet_id_here"
 CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), "credentials.json")
 WEB = "https://cafef.vn/du-lieu/Ajax/CongTy/BaoCaoTaiChinh.aspx?sym="
 
